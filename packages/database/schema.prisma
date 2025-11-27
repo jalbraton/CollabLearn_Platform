@@ -1,0 +1,358 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============= USER MANAGEMENT =============
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  password      String?   // For email/password auth
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Two-Factor Authentication
+  twoFactorEnabled  Boolean @default(false)
+  twoFactorSecret   String?
+  backupCodes       String[]
+  
+  // User preferences
+  language      String    @default("en")
+  timezone      String    @default("UTC")
+  theme         String    @default("light")
+  
+  // Relations
+  accounts      Account[]
+  sessions      Session[]
+  workspaceMembers WorkspaceMember[]
+  pages         Page[]
+  comments      Comment[]
+  activities    Activity[]
+  notifications Notification[]
+  fileUploads   FileUpload[]
+  
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============= WORKSPACE MANAGEMENT =============
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  logo        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Settings
+  isPublic    Boolean  @default(false)
+  maxMembers  Int      @default(50)
+  
+  // Relations
+  members     WorkspaceMember[]
+  pages       Page[]
+  folders     Folder[]
+  invites     WorkspaceInvite[]
+  webhooks    Webhook[]
+  
+  @@index([slug])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+  
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+model WorkspaceInvite {
+  id          String   @id @default(cuid())
+  email       String
+  role        WorkspaceRole @default(MEMBER)
+  token       String   @unique
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  @@index([workspaceId])
+  @@index([email])
+}
+
+// ============= CONTENT MANAGEMENT =============
+
+model Folder {
+  id          String   @id @default(cuid())
+  name        String
+  parentId    String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  parent      Folder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[] @relation("FolderHierarchy")
+  pages       Page[]
+  
+  @@index([workspaceId])
+  @@index([parentId])
+}
+
+model Page {
+  id          String   @id @default(cuid())
+  title       String
+  content     Json     // Stores TipTap JSON content
+  emoji       String?
+  coverImage  String?
+  isPublished Boolean  @default(false)
+  isArchived  Boolean  @default(false)
+  order       Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+  
+  // Relations
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  folderId    String?
+  folder      Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  
+  parentId    String?
+  parent      Page?    @relation("PageHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Page[]   @relation("PageHierarchy")
+  
+  versions    PageVersion[]
+  comments    Comment[]
+  tags        PageTag[]
+  
+  @@index([workspaceId])
+  @@index([authorId])
+  @@index([folderId])
+  @@index([parentId])
+  @@index([isPublished])
+}
+
+model PageVersion {
+  id        String   @id @default(cuid())
+  content   Json
+  title     String
+  createdAt DateTime @default(now())
+  
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  
+  @@index([pageId])
+  @@index([createdAt])
+}
+
+model Tag {
+  id    String @id @default(cuid())
+  name  String @unique
+  color String @default("#808080")
+  
+  pages PageTag[]
+  
+  @@index([name])
+}
+
+model PageTag {
+  pageId String
+  tagId  String
+  
+  page Page @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  
+  @@id([pageId, tagId])
+  @@index([pageId])
+  @@index([tagId])
+}
+
+// ============= COMMENTS & COLLABORATION =============
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  
+  parentId  String?
+  parent    Comment? @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentThread")
+  
+  @@index([pageId])
+  @@index([authorId])
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+// ============= FILE MANAGEMENT =============
+
+model FileUpload {
+  id        String   @id @default(cuid())
+  filename  String
+  originalName String
+  mimeType  String
+  size      Int
+  url       String
+  thumbnailUrl String?
+  
+  // Metadata
+  width     Int?
+  height    Int?
+  duration  Int?     // For videos
+  
+  uploadedAt DateTime @default(now())
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([uploadedAt])
+}
+
+// ============= ACTIVITY & NOTIFICATIONS =============
+
+model Activity {
+  id        String   @id @default(cuid())
+  type      String   // page.created, page.updated, comment.added, etc.
+  metadata  Json     // Additional data about the activity
+  createdAt DateTime @default(now())
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  message   String   @db.Text
+  read      Boolean  @default(false)
+  actionUrl String?
+  createdAt DateTime @default(now())
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+}
+
+// ============= WEBHOOKS =============
+
+model Webhook {
+  id          String   @id @default(cuid())
+  name        String
+  url         String
+  secret      String
+  events      String[] // Array of event types to listen to
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  deliveries  WebhookDelivery[]
+  
+  @@index([workspaceId])
+}
+
+model WebhookDelivery {
+  id          String   @id @default(cuid())
+  event       String
+  payload     Json
+  response    Json?
+  success     Boolean
+  statusCode  Int?
+  deliveredAt DateTime @default(now())
+  
+  webhookId   String
+  webhook     Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  
+  @@index([webhookId])
+  @@index([deliveredAt])
+}
