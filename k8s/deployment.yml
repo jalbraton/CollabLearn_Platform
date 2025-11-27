@@ -1,0 +1,101 @@
+# Kubernetes deployment configuration for CollabLearn Platform
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collablearn-web
+  labels:
+    app: collablearn
+    component: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: collablearn
+      component: web
+  template:
+    metadata:
+      labels:
+        app: collablearn
+        component: web
+    spec:
+      containers:
+        - name: web
+          image: collablearn/web:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: collablearn-secrets
+                  key: database-url
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: collablearn-secrets
+                  key: nextauth-secret
+            - name: REDIS_URL
+              value: "redis://redis-service:6379"
+            - name: ELASTICSEARCH_URL
+              value: "http://elasticsearch-service:9200"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collablearn-web-service
+spec:
+  selector:
+    app: collablearn
+    component: web
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: LoadBalancer
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: collablearn-web-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: collablearn-web
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
