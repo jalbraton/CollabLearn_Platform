@@ -7,6 +7,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { CollaborativeEditor } from "@/components/editor/CollaborativeEditor"
+import { CommentsPanel } from "@/components/comments/CommentsPanel"
 import {
   ArrowLeft,
   Save,
@@ -211,17 +212,12 @@ export default function PageEditorPage() {
         />
       </div>
 
-      {/* Sidebar - Comments (Future) */}
+      {/* Sidebar - Comments */}
       <div className="fixed right-0 top-20 bottom-0 w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 hidden xl:block">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-            <MessageSquare className="h-5 w-5 mr-2" />
-            Comments
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            No comments yet. Be the first to comment!
-          </p>
-        </div>
+        <CommentsPanel
+          workspaceId={params.workspaceId as string}
+          pageId={params.pageId as string}
+        />
       </div>
     </div>
   )
