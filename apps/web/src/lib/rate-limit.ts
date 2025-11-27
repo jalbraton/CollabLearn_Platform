@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Redis } from 'ioredis';
+import { createClient } from 'redis';
 
 // Initialize Redis client
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+const redis = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+});
+
+redis.on('error', (err) => console.error('Redis Client Error', err));
+redis.connect().catch(console.error);
 
 export interface RateLimitConfig {
   interval: number; // Time window in seconds
@@ -31,29 +36,19 @@ export async function rateLimit(
   const key = `ratelimit:${ip}:${request.nextUrl.pathname}`;
 
   try {
-    // Use Redis pipeline for atomic operations
-    const pipeline = redis.pipeline();
+    // Get current count
+    const count = await redis.incr(key);
     
-    // Increment counter
-    pipeline.incr(key);
-    
-    // Set expiry if key is new
-    pipeline.expire(key, interval);
-    
-    // Get TTL
-    pipeline.ttl(key);
-    
-    const results = await pipeline.exec();
-    
-    if (!results) {
-      throw new Error('Redis pipeline failed');
+    // Set expiry on first request
+    if (count === 1) {
+      await redis.expire(key, interval);
     }
 
-    const count = results[0][1] as number;
-    const ttl = results[2][1] as number;
+    // Get TTL
+    const ttl = await redis.ttl(key);
 
     const remaining = Math.max(0, maxRequests - count);
-    const reset = Date.now() + ttl * 1000;
+    const reset = Date.now() + (ttl > 0 ? ttl * 1000 : interval * 1000);
 
     return {
       success: count <= maxRequests,
@@ -164,7 +159,7 @@ export async function isBlocked(ip: string): Promise<boolean> {
  */
 export async function blockIP(ip: string, duration: number = 86400): Promise<void> {
   try {
-    await redis.setex(`blocklist:${ip}`, duration, '1');
+    await redis.setEx(`blocklist:${ip}`, duration, '1');
   } catch (error) {
     console.error('Error blocking IP:', error);
   }

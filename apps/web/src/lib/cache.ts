@@ -1,7 +1,12 @@
-import { Redis } from 'ioredis';
+import { createClient } from 'redis';
 
 // Initialize Redis client
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+const redis = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+});
+
+redis.on('error', (err: Error) => console.error('Redis Client Error', err));
+redis.connect().catch(console.error);
 
 export interface CacheOptions {
   ttl?: number; // Time to live in seconds
@@ -39,13 +44,13 @@ export async function setCache<T>(
 
   try {
     const serialized = JSON.stringify(value);
-    
+
     if (ttl > 0) {
-      await redis.setex(fullKey, ttl, serialized);
+      await redis.setEx(fullKey, ttl, serialized);
     } else {
       await redis.set(fullKey, serialized);
     }
-    
+
     return true;
   } catch (error) {
     console.error('Cache set error:', error);
